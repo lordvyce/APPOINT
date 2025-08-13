@@ -628,7 +628,7 @@ INDEX_HTML = """
   .form-step.active { display: block; }
 </style>
 </head>
-<body onload="initApp()">
+<body onload="if(typeof initApp === 'function') initApp(); else console.warn('initApp not loaded');">
   <div class="min-h-screen">
     <nav class="navbar sticky top-0 z-50">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -1090,6 +1090,7 @@ INDEX_HTML = """
   </div>
 
 <script>
+// Global variables
 const patientFormFields = ['patient_name', 'docket_number', 'modality', 'procedure', 'phone_number', 'dob', 'coming_from', 'health_card', 'clinic_appointment', 'scheduled_date'];
 let allPatients = [];
 let filteredPatients = [];
@@ -1097,8 +1098,11 @@ let currentSort = { column: 'patient_name', direction: 'asc' };
 let currentPage = 1;
 const rowsPerPage = 10;
 
+// Initialize application
 function initApp() {
-    // Setup tab buttons for larger screens
+    console.log('Initializing Patient Records System...');
+    
+    // Setup tab buttons
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -1106,66 +1110,160 @@ function initApp() {
         });
     });
     
-    // Setup search listener with debounce
+    // Setup search with debounce
     let searchTimeout;
-    document.getElementById('patientSearch').addEventListener('input', (e) => {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-            filterAndRenderPatients(e.target.value);
-        }, 300);
-    });
+    const searchInput = document.getElementById('patientSearch');
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => filterAndRenderPatients(e.target.value), 300);
+        });
+    }
 
     // Initialize clock
     updateClock();
     setInterval(updateClock, 1000);
 
+    // Load initial data
     loadAllData();
 }
 
+// Clock function
 function updateClock() {
-    const now = new Date();
-    const timeString = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-    const dateString = now.toLocaleDateString([], {weekday: 'short', month: 'short', day: 'numeric'});
-    document.getElementById('current-time').textContent = `${dateString} ${timeString}`;
+    const clockEl = document.getElementById('current-time');
+    if (clockEl) {
+        const now = new Date();
+        const timeString = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        const dateString = now.toLocaleDateString([], {weekday: 'short', month: 'short', day: 'numeric'});
+        clockEl.textContent = timeString + ' ' + dateString;
+    }
 }
 
+// Tab navigation
 function showTab(tab) {
-  document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-  document.getElementById(`tab-${tab}`).classList.add('active');
-  
-  // Sync dropdown for mobile
-  const select = document.getElementById('tabs');
-  if (select.value !== tab) {
-      select.value = tab;
-  }
-  
-  // Update button styles for desktop
-  const targetBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick').includes(`'${tab}'`));
-  if(targetBtn){
-      document.querySelectorAll('.tab-btn').forEach(b => {
-          b.classList.remove('border-blue-600', 'text-blue-600');
-          b.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
-      });
-      targetBtn.classList.add('border-blue-600', 'text-blue-600');
-      targetBtn.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
-  }
+    console.log('Showing tab:', tab);
+    document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+    const targetTab = document.getElementById('tab-' + tab);
+    if (targetTab) {
+        targetTab.classList.add('active');
+    }
+    
+    // Sync dropdown for mobile
+    const select = document.getElementById('tabs');
+    if (select && select.value !== tab) {
+        select.value = tab;
+    }
+    
+    // Update button styles for desktop
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.onclick && btn.onclick.toString().includes("'" + tab + "'")) {
+            btn.classList.add('active');
+        }
+    });
 }
 
+// Form step navigation
+function navigateFormStep(step) {
+    console.log('Navigating to step:', step);
+    
+    // Update form steps
+    document.querySelectorAll('.form-step').forEach(s => s.classList.remove('active'));
+    const targetStep = document.getElementById('patient-form-step-' + step);
+    if (targetStep) {
+        targetStep.classList.add('active');
+    }
+    
+    // Update progress indicator
+    document.querySelectorAll('.progress-step').forEach((s, index) => {
+        s.classList.remove('active', 'completed');
+        if (index + 1 < step) {
+            s.classList.add('completed');
+        } else if (index + 1 === step) {
+            s.classList.add('active');
+        }
+    });
+    
+    // Scroll to top of form
+    const form = document.getElementById('patientForm');
+    if (form) {
+        form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+// Data loading functions
 async function loadAllData() {
     await Promise.all([loadStats(), loadPatients(), loadUpcomingAppointments()]);
 }
 
-async function loadPatients() {
-  try {
-    const resp = await fetch('/api/patients');
-    allPatients = await resp.json();
-    sortPatients(currentSort.column, true); // Initial sort
-  } catch(e) { 
-    console.error("Failed to load patients", e);
-    document.getElementById('patientTbody').innerHTML = '<tr><td data-label="Error" colspan="8" class="p-4 text-center text-red-500">Could not load patients.</td></tr>'; 
-  }
+async function loadStats() {
+    try {
+        const resp = await fetch('/api/stats');
+        const stats = await resp.json();
+        document.getElementById('stat-total').textContent = stats.total_patients || 0;
+        document.getElementById('stat-modalities').textContent = stats.total_modalities || 0;
+        document.getElementById('stat-appointments').textContent = stats.pending_appointments || 0;
+    } catch(e) {
+        console.error("Failed to load stats", e);
+    }
 }
 
+async function loadPatients() {
+    try {
+        const resp = await fetch('/api/patients');
+        allPatients = await resp.json();
+        filteredPatients = allPatients.slice();
+        sortPatients(currentSort.column, true);
+    } catch(e) { 
+        console.error("Failed to load patients", e);
+        const tbody = document.getElementById('patientTbody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td data-label="Error" colspan="8" class="p-4 text-center text-red-500">Could not load patients.</td></tr>'; 
+        }
+    }
+}
+
+async function loadUpcomingAppointments() {
+    try {
+        const resp = await fetch('/api/upcoming');
+        const patients = await resp.json();
+        const tbody = document.getElementById('upcomingTbody');
+        if (!tbody) return;
+        
+        tbody.innerHTML = "";
+        if (!patients.length) {
+            tbody.innerHTML = '<tr><td data-label="Status" class="p-4 text-center text-gray-500" colspan="5">No upcoming appointments found.</td></tr>';
+            return;
+        }
+        
+        patients.forEach(p => {
+            const tr = document.createElement('tr');
+            tr.className = "table-row";
+            tr.innerHTML = `
+                <td data-label="Name" class="p-3 whitespace-nowrap text-sm font-medium text-gray-900">${escapeHtml(p.patient_name)}</td>
+                <td data-label="Modality" class="p-3 whitespace-nowrap text-sm text-gray-500">${escapeHtml(p.modality)}</td>
+                <td data-label="Time" class="p-3 whitespace-nowrap text-sm text-gray-500">${p.clinic_appointment ? new Date(p.clinic_appointment).toLocaleString([], {year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) : ''}</td>
+                <td data-label="Phone" class="p-3 whitespace-nowrap text-sm text-gray-500">${escapeHtml(p.phone_number)}</td>
+                <td data-label="Actions" class="p-3 text-sm font-medium">
+                    <button class="action-button edit" onclick="openEditModal(${p.id})" title="Edit patient">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                        </svg>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch(e) { 
+        console.error("Failed to load upcoming appointments", e);
+        const tbody = document.getElementById('upcomingTbody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td data-label="Error" class="p-4 text-center text-red-500" colspan="5">Could not load appointments.</td></tr>'; 
+        }
+    }
+}
+
+// Patient table functions
 function filterAndRenderPatients(searchTerm = '') {
     const lowerCaseSearch = searchTerm.toLowerCase();
     filteredPatients = allPatients.filter(p => {
@@ -1199,19 +1297,21 @@ function sortPatients(column, initial = false) {
 
 function renderPatientTable() {
     const tbody = document.getElementById('patientTbody');
+    if (!tbody) return;
+    
     tbody.innerHTML = "";
     if (!filteredPatients.length) {
-      tbody.innerHTML = `<tr><td data-label="Status" class="p-6 text-center text-gray-500" colspan="8">
-        <div class="flex flex-col items-center justify-center py-8">
-          <svg class="w-12 h-12 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v6a2 2 0 002 2h6a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
-          </svg>
-          <p class="text-lg font-medium">No patients found</p>
-          <p class="text-sm">Try adjusting your search criteria</p>
-        </div>
-      </td></tr>`;
-      renderPaginationControls();
-      return;
+        tbody.innerHTML = `<tr><td data-label="Status" class="p-6 text-center text-gray-500" colspan="8">
+            <div class="flex flex-col items-center justify-center py-8">
+                <svg class="w-12 h-12 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v6a2 2 0 002 2h6a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                </svg>
+                <p class="text-lg font-medium">No patients found</p>
+                <p class="text-sm">Try adjusting your search criteria</p>
+            </div>
+        </td></tr>`;
+        renderPaginationControls();
+        return;
     }
 
     const start = (currentPage - 1) * rowsPerPage;
@@ -1219,54 +1319,55 @@ function renderPatientTable() {
     const paginatedItems = filteredPatients.slice(start, end);
 
     paginatedItems.forEach(p => {
-      const tr = document.createElement('tr');
-      tr.className = "table-row";
-      tr.innerHTML = `
-        <td data-label="Name" class="p-4 whitespace-nowrap">
-          <div class="flex items-center">
-            <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center mr-3">
-              <span class="text-sm font-medium text-blue-600">${escapeHtml(p.patient_name).charAt(0).toUpperCase()}</span>
-            </div>
-            <div>
-              <div class="text-sm font-semibold text-gray-900">${escapeHtml(p.patient_name)}</div>
-              <div class="text-xs text-gray-500">ID: ${p.id}</div>
-            </div>
-          </div>
-        </td>
-        <td data-label="Docket" class="p-4 whitespace-nowrap">
-          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-            ${escapeHtml(p.docket_number) || 'Not assigned'}
-          </span>
-        </td>
-        <td data-label="Modality" class="p-4 whitespace-nowrap">
-          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getModalityColor(p.modality)}">
-            ${escapeHtml(p.modality) || 'Not specified'}
-          </span>
-        </td>
-        <td data-label="Procedure" class="p-4 whitespace-nowrap text-sm text-gray-700">${escapeHtml(p.procedure) || '-'}</td>
-        <td data-label="Phone" class="p-4 whitespace-nowrap text-sm text-gray-700">${escapeHtml(p.phone_number) || '-'}</td>
-        <td data-label="DOB" class="p-4 whitespace-nowrap text-sm text-gray-700">${formatDate(p.dob)}</td>
-        <td data-label="Scheduled" class="p-4 whitespace-nowrap text-sm text-gray-700">${formatDate(p.scheduled_date)}</td>
-        <td data-label="Actions" class="p-4 text-sm font-medium">
-          <div class="flex items-center space-x-2">
-            <button class="action-button edit" onclick="openEditModal(${p.id})" title="Edit patient record">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-              </svg>
-            </button>
-            <button class="action-button delete" onclick="deletePatient(${p.id})" title="Delete patient record">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-              </svg>
-            </button>
-          </div>
-        </td>
-      `;
-      tbody.appendChild(tr);
+        const tr = document.createElement('tr');
+        tr.className = "table-row";
+        tr.innerHTML = `
+            <td data-label="Name" class="p-4 whitespace-nowrap">
+                <div class="flex items-center">
+                    <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center mr-3">
+                        <span class="text-sm font-medium text-blue-600">${escapeHtml(p.patient_name).charAt(0).toUpperCase()}</span>
+                    </div>
+                    <div>
+                        <div class="text-sm font-semibold text-gray-900">${escapeHtml(p.patient_name)}</div>
+                        <div class="text-xs text-gray-500">ID: ${p.id}</div>
+                    </div>
+                </div>
+            </td>
+            <td data-label="Docket" class="p-4 whitespace-nowrap">
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                    ${escapeHtml(p.docket_number) || 'Not assigned'}
+                </span>
+            </td>
+            <td data-label="Modality" class="p-4 whitespace-nowrap">
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getModalityColor(p.modality)}">
+                    ${escapeHtml(p.modality) || 'Not specified'}
+                </span>
+            </td>
+            <td data-label="Procedure" class="p-4 whitespace-nowrap text-sm text-gray-700">${escapeHtml(p.procedure) || '-'}</td>
+            <td data-label="Phone" class="p-4 whitespace-nowrap text-sm text-gray-700">${escapeHtml(p.phone_number) || '-'}</td>
+            <td data-label="DOB" class="p-4 whitespace-nowrap text-sm text-gray-700">${formatDate(p.dob)}</td>
+            <td data-label="Scheduled" class="p-4 whitespace-nowrap text-sm text-gray-700">${formatDate(p.scheduled_date)}</td>
+            <td data-label="Actions" class="p-4 text-sm font-medium">
+                <div class="flex items-center space-x-2">
+                    <button class="action-button edit" onclick="openEditModal(${p.id})" title="Edit patient record">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                        </svg>
+                    </button>
+                    <button class="action-button delete" onclick="deletePatient(${p.id})" title="Delete patient record">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </button>
+                </div>
+            </td>
+        `;
+        tbody.appendChild(tr);
     });
     renderPaginationControls();
 }
 
+// Utility functions
 function getModalityColor(modality) {
     const colors = {
         'US': 'bg-blue-100 text-blue-800',
@@ -1286,8 +1387,167 @@ function formatDate(dateString) {
     }
 }
 
+function renderPaginationControls() {
+    const controls = document.getElementById('patient-pagination-controls');
+    if (!controls) return;
+    
+    const totalPages = Math.ceil(filteredPatients.length / rowsPerPage);
+    controls.innerHTML = '';
+    if (totalPages <= 1) return;
+
+    const start = (currentPage - 1) * rowsPerPage + 1;
+    const end = Math.min(start + rowsPerPage - 1, filteredPatients.length);
+
+    let html = `<span class="text-gray-600">Showing ${start}-${end} of ${filteredPatients.length}</span>`;
+    html += `<button onclick="changePage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''} class="ml-2 p-1 rounded-md disabled:opacity-50 enabled:hover:bg-gray-100"><svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clip-rule="evenodd" /></svg></button>`;
+    html += `<button onclick="changePage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''} class="p-1 rounded-md disabled:opacity-50 enabled:hover:bg-gray-100"><svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" /></svg></button>`;
+    controls.innerHTML = html;
+}
+
+function changePage(page) {
+    const totalPages = Math.ceil(filteredPatients.length / rowsPerPage);
+    if (page < 1 || page > totalPages) return;
+    currentPage = page;
+    renderPatientTable();
+}
+
+// Form handling
+async function handlePatientSubmit(e) {
+    e.preventDefault();
+    const formData = {};
+    patientFormFields.forEach(field => { 
+        const el = document.getElementById(field);
+        if (el) formData[field] = el.value; 
+    });
+    
+    const statusEl = document.getElementById('patientStatus');
+    if (statusEl) {
+        statusEl.textContent = "Adding...";
+        statusEl.className = 'text-sm font-medium text-gray-500';
+    }
+
+    try {
+        const resp = await fetch('/api/patient', { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify(formData) 
+        });
+        const result = await resp.json();
+        
+        if (statusEl) {
+            statusEl.textContent = result.message;
+            if (resp.ok) {
+                statusEl.className = 'text-sm font-medium text-green-600';
+                resetPatientForm();
+                loadAllData();
+            } else {
+                statusEl.className = 'text-sm font-medium text-red-600';
+            }
+            setTimeout(() => statusEl.textContent = "", 4000);
+        }
+    } catch(e) {
+        console.error('Error submitting patient:', e);
+        if (statusEl) {
+            statusEl.textContent = "Error submitting form";
+            statusEl.className = 'text-sm font-medium text-red-600';
+        }
+    }
+}
+
+function resetPatientForm() {
+    const form = document.getElementById('patientForm');
+    if (form) {
+        form.reset();
+        navigateFormStep(1);
+    }
+}
+
+// Modal functions
+async function openEditModal(id) {
+    try {
+        const resp = await fetch(`/api/patient/${id}`);
+        if (!resp.ok) { 
+            alert("Could not fetch patient details."); 
+            return; 
+        }
+        const patient = await resp.json();
+        
+        patientFormFields.forEach(field => {
+            const el = document.getElementById(`edit_${field}`);
+            if (el) el.value = patient[field] || '';
+        });
+        
+        document.getElementById('edit_patient_id').value = patient.id;
+        document.getElementById('editModal').style.display = 'flex';
+    } catch(e) {
+        console.error('Error opening edit modal:', e);
+        alert('Error loading patient data');
+    }
+}
+
+function closeEditModal() {
+    document.getElementById('editModal').style.display = 'none';
+    const form = document.getElementById('editPatientForm');
+    if (form) form.reset();
+    const status = document.getElementById('editStatus');
+    if (status) status.textContent = '';
+}
+
+async function handleUpdateSubmit(e) {
+    e.preventDefault();
+    const patientId = document.getElementById('edit_patient_id').value;
+    const formData = {};
+    patientFormFields.forEach(field => { 
+        const el = document.getElementById(`edit_${field}`);
+        if (el) formData[field] = el.value; 
+    });
+
+    const statusEl = document.getElementById('editStatus');
+    if (statusEl) {
+        statusEl.textContent = "Updating...";
+        statusEl.className = 'text-sm font-medium text-gray-500';
+    }
+
+    try {
+        const resp = await fetch(`/api/patient/${patientId}`, { 
+            method: 'PUT', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify(formData) 
+        });
+        const result = await resp.json();
+        
+        if (statusEl) {
+            statusEl.textContent = result.message;
+            if (resp.ok) {
+                statusEl.className = 'text-sm font-medium text-green-600';
+                loadAllData();
+                setTimeout(() => closeEditModal(), 1500);
+            } else {
+                statusEl.className = 'text-sm font-medium text-red-600';
+                setTimeout(() => statusEl.textContent = '', 4000);
+            }
+        }
+    } catch(e) {
+        console.error('Error updating patient:', e);
+        if (statusEl) {
+            statusEl.textContent = "Error updating patient";
+            statusEl.className = 'text-sm font-medium text-red-600';
+        }
+    }
+}
+
+async function deletePatient(id) {
+    if (!confirm('Are you sure you want to delete this patient record? This action cannot be undone.')) return;
+    try {
+        await fetch(`/api/patient/${id}`, { method: 'DELETE' });
+        loadAllData();
+    } catch(e) {
+        console.error('Error deleting patient:', e);
+        alert('Error deleting patient');
+    }
+}
+
 function exportPatientData() {
-    // Simple CSV export functionality
     const headers = ['Name', 'Docket', 'Modality', 'Procedure', 'Phone', 'DOB', 'Scheduled'];
     const csvContent = [
         headers.join(','),
@@ -1311,172 +1571,16 @@ function exportPatientData() {
     window.URL.revokeObjectURL(url);
 }
 
-function renderPaginationControls() {
-    const controls = document.getElementById('patient-pagination-controls');
-    const totalPages = Math.ceil(filteredPatients.length / rowsPerPage);
-    controls.innerHTML = '';
-    if (totalPages <= 1) return;
-
-    const start = (currentPage - 1) * rowsPerPage + 1;
-    const end = Math.min(start + rowsPerPage - 1, filteredPatients.length);
-
-    let html = `<span class="text-gray-600">Showing ${start}-${end} of ${filteredPatients.length}</span>`;
-    html += `<button onclick="changePage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''} class="ml-2 p-1 rounded-md disabled:opacity-50 enabled:hover:bg-gray-100"><svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clip-rule="evenodd" /></svg></button>`;
-    html += `<button onclick="changePage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''} class="p-1 rounded-md disabled:opacity-50 enabled:hover:bg-gray-100"><svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" /></svg></button>`;
-    controls.innerHTML = html;
-}
-
-function changePage(page) {
-    const totalPages = Math.ceil(filteredPatients.length / rowsPerPage);
-    if (page < 1 || page > totalPages) return;
-    currentPage = page;
-    renderPatientTable();
-}
-
-async function loadUpcomingAppointments() {
-  try {
-    const resp = await fetch('/api/upcoming');
-    const patients = await resp.json();
-    const tbody = document.getElementById('upcomingTbody');
-    tbody.innerHTML = "";
-    if (!patients.length) {
-      tbody.innerHTML = `<tr><td data-label="Status" class="p-4 text-center text-gray-500" colspan="5">No upcoming appointments found.</td></tr>`;
-      return;
-    }
-    patients.forEach(p => {
-      const tr = document.createElement('tr');
-      tr.className = "hover:bg-gray-50";
-      tr.innerHTML = `
-        <td data-label="Name" class="p-3 whitespace-nowrap text-sm font-medium text-gray-900">${escapeHtml(p.patient_name)}</td>
-        <td data-label="Modality" class="p-3 whitespace-nowrap text-sm text-gray-500">${escapeHtml(p.modality)}</td>
-        <td data-label="Time" class="p-3 whitespace-nowrap text-sm text-gray-500">${p.clinic_appointment ? new Date(p.clinic_appointment).toLocaleString([], {year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) : ''}</td>
-        <td data-label="Phone" class="p-3 whitespace-nowrap text-sm text-gray-500">${escapeHtml(p.phone_number)}</td>
-        <td data-label="Actions" class="p-3 text-sm font-medium">
-          <button class="text-blue-600 hover:text-blue-900" onclick="openEditModal(${p.id})"><svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M5.433 13.917l1.262-3.155A4 4 0 017.58 9.42l6.92-6.918a2.121 2.121 0 013 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 01-.65-.65z" /><path d="M3.5 5.75c0-.69.56-1.25 1.25-1.25H10A.75.75 0 0010 3H4.75A2.75 2.75 0 002 5.75v9.5A2.75 2.75 0 004.75 18h9.5A2.75 2.75 0 0017 15.25V10a.75.75 0 00-1.5 0v5.25c0 .69-.56 1.25-1.25 1.25h-9.5c-.69 0-1.25-.56-1.25-1.25v-9.5z" /></svg></button>
-        </td>
-      `;
-      tbody.appendChild(tr);
-    });
-  } catch(e) { 
-      console.error("Failed to load upcoming appointments", e);
-      document.getElementById('upcomingTbody').innerHTML = '<tr><td data-label="Error" class="p-4 text-center text-red-500" colspan="5">Could not load appointments.</td></tr>'; 
-  }
-}
-
-function navigateFormStep(step) {
-    // Update form steps
-    document.querySelectorAll('.form-step').forEach(s => s.classList.remove('active'));
-    document.getElementById(`patient-form-step-${step}`).classList.add('active');
-    
-    // Update progress indicator
-    document.querySelectorAll('.progress-step').forEach((s, index) => {
-        s.classList.remove('active', 'completed');
-        if (index + 1 < step) {
-            s.classList.add('completed');
-        } else if (index + 1 === step) {
-            s.classList.add('active');
-        }
-    });
-    
-    // Scroll to top of form
-    document.getElementById('patientForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-async function handlePatientSubmit(e) {
-  e.preventDefault();
-  const formData = {};
-  patientFormFields.forEach(field => { formData[field] = document.getElementById(field).value; });
-  
-  const statusEl = document.getElementById('patientStatus');
-  statusEl.textContent = "Adding...";
-  statusEl.className = 'text-sm font-medium text-gray-500';
-
-  const resp = await fetch('/api/patient', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
-  const result = await resp.json();
-  statusEl.textContent = result.message;
-  
-  if (resp.ok) {
-    statusEl.className = 'text-sm font-medium text-green-600';
-    resetPatientForm();
-    loadAllData();
-  } else {
-    statusEl.className = 'text-sm font-medium text-red-600';
-  }
-  setTimeout(() => statusEl.textContent = "", 4000);
-}
-
-function resetPatientForm() {
-    document.getElementById('patientForm').reset();
-    navigateFormStep(1); // Go back to the first step
-}
-
-async function openEditModal(id) {
-    const resp = await fetch(`/api/patient/${id}`);
-    if (!resp.ok) { alert("Could not fetch patient details."); return; }
-    const patient = await resp.json();
-    
-    patientFormFields.forEach(field => {
-        const el = document.getElementById(`edit_${field}`);
-        if (el) el.value = patient[field] || '';
-    });
-    
-    document.getElementById('edit_patient_id').value = patient.id;
-    document.getElementById('editModal').style.display = 'flex';
-}
-
-function closeEditModal() {
-    document.getElementById('editModal').style.display = 'none';
-    document.getElementById('editPatientForm').reset();
-    document.getElementById('editStatus').textContent = '';
-}
-
-async function handleUpdateSubmit(e) {
-    e.preventDefault();
-    const patientId = document.getElementById('edit_patient_id').value;
-    const formData = {};
-    patientFormFields.forEach(field => { formData[field] = document.getElementById(`edit_${field}`).value; });
-
-    const statusEl = document.getElementById('editStatus');
-    statusEl.textContent = "Updating...";
-    statusEl.className = 'text-sm font-medium text-gray-500';
-
-    const resp = await fetch(`/api/patient/${patientId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
-    const result = await resp.json();
-    statusEl.textContent = result.message;
-
-    if (resp.ok) {
-        statusEl.className = 'text-sm font-medium text-green-600';
-        loadAllData();
-        setTimeout(() => {
-            closeEditModal();
-        }, 1500);
-    } else {
-        statusEl.className = 'text-sm font-medium text-red-600';
-        setTimeout(() => statusEl.textContent = '', 4000);
-    }
-}
-
-async function deletePatient(id) {
-  if (!confirm('Are you sure you want to delete this patient record? This action cannot be undone.')) return;
-  await fetch(`/api/patient/${id}`, { method: 'DELETE' });
-  loadAllData();
-}
-
 function escapeHtml(s){ 
     if (s === null || s === undefined) return ''; 
     return s.toString().replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); 
 }
 
-async function loadStats() {
-  try {
-    const resp = await fetch('/api/stats');
-    const stats = await resp.json();
-    document.getElementById('stat-total').textContent = stats.total_patients || 0;
-    document.getElementById('stat-modalities').textContent = stats.total_modalities || 0;
-    document.getElementById('stat-appointments').textContent = stats.pending_appointments || 0;
-  } catch(e) {
-    console.error("Failed to load stats", e);
-  }
+// Initialize when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+} else {
+    initApp();
 }
 </script>
 </body>
